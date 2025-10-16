@@ -1,25 +1,34 @@
+"""
+Data Generation Service (Orchestration Layer)
+
+High-level service that orchestrates the data generation pipeline:
+1. Problem Description Generation (ProblemGen)
+2. Function Skeleton Generation (SkeletonGen)
+3. Code Implementation Generation (CodeGen) - Future
+
+This layer provides a unified API and handles multi-stage workflows.
+"""
+
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 from ..core import ConfigManager, ClientManager, PromptBuilder, FilterChain
-from ..constants import CONFIGS_DIR
+from ..constants import CONFIGS_DIR, PROJECT_ROOT
+from ..datagen.preprocess import ProblemGenerator, SkeletonGenerator
 from ..utils.logger import setup_task_logger
-from rich.progress import Progress
-
-# Default logger (will be replaced by task-specific logger)
-logger = logging.getLogger(__name__)
 
 
 class DataGenService:
     """
-    Data generation service.
-    High-level service for generating training data.
+    Orchestration service for data generation pipeline.
+    
+    Coordinates:
+    - ProblemGenerator: Generates algorithm problem descriptions
+    - SkeletonGenerator: Generates function skeletons from problems
+    - CodeGenerator: Generates full implementations (future)
     """
     
     def __init__(
@@ -27,36 +36,34 @@ class DataGenService:
         config: ConfigManager,
         client_manager: ClientManager,
         prompt_builder: PromptBuilder,
-        filter_chain: FilterChain,
         logger: Optional[logging.Logger] = None,
     ):
+        """Initialize the data generation service.
+        
+        Args:
+            config: Configuration manager
+            client_manager: Client manager for API access
+            prompt_builder: Prompt builder
+            logger: Logger instance
+        """
         self.config = config
         self.client_manager = client_manager
         self.prompt_builder = prompt_builder
-        self.filter_chain = filter_chain
         self.logger = logger or logging.getLogger(__name__)
-    
-    @classmethod
-    def from_config_files(
-        cls,
-        *config_paths: Path,
-        task: Optional[str] = None,
-        logger: Optional[logging.Logger] = None,
-    ) -> "DataGenService":
-        """
-        Create service from configuration files.
         
-        Args:
-            config_paths: Configuration file paths
-            task: Task name for logging (e.g., 'fim', 'l2r')
-            logger: Custom logger instance
-        """
-        config = ConfigManager.from_files(*config_paths)
-        client_manager = ClientManager(config)
-        prompt_builder = PromptBuilder(config)
-        filter_chain = FilterChain.for_funcname(config)
+        # Initialize generators
+        self.problem_gen = ProblemGenerator(
+            client_manager=client_manager,
+            prompt_builder=prompt_builder,
+            config=config.to_dict(),
+            logger=logger
+        )
         
-        return cls(config, client_manager, prompt_builder, filter_chain, logger)
+        self.skeleton_gen = SkeletonGenerator(
+            client_manager=client_manager,
+            config=config.to_dict(),
+            logger=logger
+        )
     
     @classmethod
     def from_config_path(
@@ -65,13 +72,15 @@ class DataGenService:
         task: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ) -> "DataGenService":
-        """
-        Create service from single config file (auto-loads model.yaml).
+        """Create service from configuration file.
         
         Args:
             config_path: Main configuration file path
             task: Task name for logging (e.g., 'fim', 'l2r')
             logger: Custom logger instance
+            
+        Returns:
+            Configured DataGenService instance
         """
         # Load main config
         main_config = ConfigManager.from_file(config_path)
@@ -89,239 +98,145 @@ class DataGenService:
         
         client_manager = ClientManager(config)
         prompt_builder = PromptBuilder(config)
-        filter_chain = FilterChain.for_funcname(config)
         
-        return cls(config, client_manager, prompt_builder, filter_chain, logger)
+        return cls(config, client_manager, prompt_builder, logger)
     
-    def _write_jsonl(self, filepath: Path, data: List[Dict]) -> None:
-        """Helper method to write JSONL data (blocking I/O)"""
-        with open(filepath, "a") as f:
-            for item in data:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
-    
-    def _write_hashes(self, filepath: Path, hashes: List[str]) -> None:
-        """Helper method to write hash table (blocking I/O)"""
-        with open(filepath, "a") as f:
-            for h in hashes:
-                f.write(h + "\n")
-    
-    async def generate_function_names(
+    async def generate_problems(
         self,
-        mode: Literal["FIM", "L2R"] = "FIM",
+        mode: Literal["FIM", "L2R"],
         num_samples: Optional[int] = None,
-        batch_write_size: int = 50,
     ) -> List[Dict]:
-        """
-        Generate function names using FIM or L2R mode.
+        """Generate algorithm problem descriptions.
         
         Args:
-            mode: "FIM" or "L2R"
-            num_samples: Total number of samples to generate (overrides config)
-            batch_write_size: Write to disk every N samples (default: 50)
-        
+            mode: Generation mode ("FIM" or "L2R")
+            num_samples: Number of problems to generate (overrides config)
+            
         Returns:
-            List of candidates with function names
+            List of generated problem dictionaries
         """
-        client = self.client_manager.completion_client
-        
-        # Get parameters
-        temperature = float(self.config.get("namegen.temperature", 0.4))
-        top_p = float(self.config.get("namegen.top_p", 0.9))
-        max_tokens = int(self.config.get("namegen.max_tokens", 512))
-        stop = self.config.get("namegen.stop", ["(", " ", "\n"])
-        
-        # Calculate batching based on num_samples and max_concurrent
+        # Get parameters from config
         if num_samples is None:
             num_samples = int(self.config.get("namegen.num_samples", 100))
         
-        # Prefer the client's actual semaphore setting to avoid drift
-        try:
-            max_concurrent = int(getattr(self.client_manager.completion_client.semaphore, "_value", 0)) or int(self.config.get("api.concurrency.max_concurrent_requests", 5))
-        except Exception:
-            max_concurrent = int(self.config.get("api.concurrency.max_concurrent_requests", 5))
+        temperature = float(self.config.get("namegen.temperature", 1.0))
+        top_p = float(self.config.get("namegen.top_p", 0.95))
+        max_tokens = int(self.config.get("namegen.max_tokens", 2048))
+        stop = self.config.get("namegen.stop", ["---"])
+        batch_write_size = int(self.config.get("namegen.batch_write_size", 50))
         
-        # Each request generates 1 sample, batch them based on concurrency
-        # We'll make ceil(num_samples / max_concurrent) batches
-        import math
-        num_batches = math.ceil(num_samples / max_concurrent)
-        samples_per_batch = min(max_concurrent, num_samples)
+        # Get output directory
+        out_dir = Path(self.config.get("io.out_names_dir", f"data/generated/problems_desc/{mode.lower()}"))
+        if not out_dir.is_absolute():
+            out_dir = PROJECT_ROOT / out_dir
         
-        self.logger.info(f"Generating function names: mode={mode}, total_samples={num_samples}")
-        self.logger.info(f"Batching: {num_batches} batches, {samples_per_batch} samples per batch, max_concurrent={max_concurrent}")
-        self.logger.info(f"Client base_url: {getattr(client, 'base_url', 'N/A')}, model: {getattr(client, 'model', 'N/A')}")
-        self.logger.info(f"Generation params: temperature={temperature}, top_p={top_p}, max_tokens={max_tokens}, stop={stop}")
+        self.logger.info(f"=== Orchestrating Problem Generation: {mode} ===")
         
-        # Get FIM stop token
-        fim_suffix_token = self.config.get("api.fim.suffix_token", "<|fim_suffix|>")
-        if mode == "FIM" and fim_suffix_token not in stop:
-            stop = list(stop) + [fim_suffix_token]
+        # Call ProblemGenerator
+        results = await self.problem_gen.generate(
+            mode=mode,
+            num_samples=num_samples,
+            output_dir=out_dir,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stop=stop,
+            batch_write_size=batch_write_size
+        )
         
-        # Prepare requests - generate num_samples total
-        if mode == "FIM":
-            fim_prompt = self.prompt_builder.build_funcname_fim()
-            self.logger.debug(f"FIM prompt: {repr(fim_prompt[:80])}...")
-            base_prompt = fim_prompt
-        else:  # L2R
-            base_prompt = self.prompt_builder.build_funcname_l2r()
-            self.logger.debug(f"L2R prompt: {repr(base_prompt[:50])}...")
-        
-        # Setup output directory and hash table
-        out_dir = Path(self.config.get("io.out_names_dir", f"data/generated/names/{mode.lower()}"))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        
-        hash_table_file = out_dir / "hash_table.txt"
-        output_file = out_dir / f"{mode.lower()}_results.jsonl"
-        
-        # Load existing hash table
-        existing_hashes = set()
-        if hash_table_file.exists():
-            with open(hash_table_file, "r") as f:
-                existing_hashes = set(line.strip() for line in f if line.strip())
-            self.logger.info(f"Loaded {len(existing_hashes)} existing hashes from {hash_table_file}")
-        
-        # Generate all samples in batches with progress and incremental writing
-        all_valid_results: List[Dict] = []
-        pending_write: List[Dict] = []
-        pending_hashes: List[str] = []
-        completed = 0
-        total_duplicates = 0
-        
-        with Progress() as progress:
-            task_id = progress.add_task("Generating", total=num_samples)
-            for batch_idx, start_idx in enumerate(range(0, num_samples, max_concurrent)):
-                batch_size = min(max_concurrent, num_samples - start_idx)
-                batch_prompts = [base_prompt] * batch_size
-                self.logger.info(f"[Batch {batch_idx+1}/{num_batches}] Sending {batch_size} requests...")
-                
-                batch_results = await client.complete_batch_async(
-                    prompts=batch_prompts,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    n=1,  # One sample per request
-                    stop=stop,
-                )
-                
-                self.logger.info(f"[Batch {batch_idx+1}/{num_batches}] Received {len(batch_results)} responses")
-                
-                # Process batch results immediately
-                for result_batch in batch_results:
-                    for result in result_batch:
-                        raw_text = result.get("text", "").strip()
-                        if not raw_text:
-                            continue
-                        
-                        # Compute hash as UID
-                        uid = hashlib.sha256(raw_text.encode('utf-8')).hexdigest()[:16]
-                        
-                        # Check for duplicates
-                        if uid in existing_hashes or uid in pending_hashes:
-                            total_duplicates += 1
-                            continue
-                        
-                        # Add to pending
-                        pending_hashes.append(uid)
-                        pending_write.append({
-                            "uid": uid,
-                            "problem_description": raw_text,
-                            "source": mode,
-                            "raw_text": raw_text,
-                        })
-                
-                completed += batch_size
-                progress.update(task_id, advance=batch_size)
-                self.logger.info(f"Progress: {completed}/{num_samples}, pending: {len(pending_write)}, duplicates: {total_duplicates}")
-                
-                # Write every batch_write_size samples (non-blocking)
-                if len(pending_write) >= batch_write_size:
-                    # Create a copy for async writing
-                    write_data = pending_write.copy()
-                    write_hashes = pending_hashes.copy()
-                    
-                    # Async write task (fire and forget)
-                    async def write_batch():
-                        try:
-                            # Write to output file (append mode)
-                            await asyncio.to_thread(
-                                lambda: self._write_jsonl(output_file, write_data)
-                            )
-                            
-                            # Write to hash table (append mode)
-                            await asyncio.to_thread(
-                                lambda: self._write_hashes(hash_table_file, write_hashes)
-                            )
-                            
-                            self.logger.info(f"✅ Wrote {len(write_data)} samples to {output_file}")
-                        except Exception as e:
-                            self.logger.error(f"❌ Failed to write batch: {e}")
-                    
-                    # Schedule write task without waiting
-                    asyncio.create_task(write_batch())
-                    
-                    # Update existing hashes and move to all_valid_results
-                    existing_hashes.update(pending_hashes)
-                    all_valid_results.extend(pending_write)
-                    
-                    # Clear pending
-                    pending_write = []
-                    pending_hashes = []
-        
-        # Write remaining samples (synchronous for final write to ensure completion)
-        if pending_write:
-            await asyncio.to_thread(
-                lambda: self._write_jsonl(output_file, pending_write)
-            )
-            await asyncio.to_thread(
-                lambda: self._write_hashes(hash_table_file, pending_hashes)
-            )
-            
-            self.logger.info(f"✅ Wrote final {len(pending_write)} samples to {output_file}")
-            all_valid_results.extend(pending_write)
-        
-        # Wait a bit to ensure all async writes complete
-        await asyncio.sleep(0.5)
-        
-        # Summary
-        self.logger.info(f"✅ Generation complete: {len(all_valid_results)} unique problems generated, {total_duplicates} duplicates skipped")
-        self.logger.info(f"📁 Output file: {output_file}")
-        self.logger.info(f"🔑 Hash table: {hash_table_file} ({len(existing_hashes)} total hashes)")
-        
-        return all_valid_results
+        return results
     
-    async def generate_function_names_ab_test(
+    async def generate_skeletons(
         self,
-        num_samples: Optional[int] = None
-    ) -> tuple[List[Dict], List[Dict]]:
-        """
-        Run A/B test: FIM vs L2R function name generation.
+        source_mode: Literal["fim", "l2r"],
+        num_samples: Optional[int] = None,
+    ) -> List[Dict]:
+        """Generate function skeletons from problem descriptions.
         
         Args:
-            num_samples: Total samples to generate per mode
-        
+            source_mode: Source of problems ("fim" or "l2r")
+            num_samples: Number of samples to process (None = all)
+            
         Returns:
-            (fim_results, l2r_results)
+            List of generated skeleton dictionaries
         """
-        self.logger.info("=" * 60)
-        self.logger.info("A/B Test: FIM vs L2R Function Name Generation")
-        self.logger.info("=" * 60)
+        # Get parameters from config
+        temperature = float(self.config.get("skeleton.temperature", 0.7))
+        top_p = float(self.config.get("skeleton.top_p", 0.95))
+        max_tokens = int(self.config.get("skeleton.max_tokens", 512))
+        stop = self.config.get("skeleton.stop", [])
+        batch_write_size = int(self.config.get("skeleton.batch_write_size", 50))
         
-        # Generate FIM
-        self.logger.info("Running FIM mode...")
-        fim_results = await self.generate_function_names("FIM", num_samples)
+        # Get prompt template
+        prompt_template = self.config.get("prompts.skeleton.template", "")
         
-        # Generate L2R
-        self.logger.info("Running L2R mode...")
-        l2r_results = await self.generate_function_names("L2R", num_samples)
+        # Get input/output paths
+        source_cfg = self.config.get("io.source", {})
+        dir_map = source_cfg.get("dir_map", {})
+        file_name_map = source_cfg.get("file_name_map", {})
         
-        # Statistics
-        fim_unique = len(set(r["func_name"] for r in fim_results))
-        l2r_unique = len(set(r["func_name"] for r in l2r_results))
+        input_dir = PROJECT_ROOT / dir_map.get(source_mode, f"data/generated/problems_desc/{source_mode}")
+        input_file = input_dir / file_name_map.get(source_mode, f"{source_mode}_results.jsonl")
         
-        self.logger.info("=" * 60)
-        self.logger.info("A/B Test Results:")
-        self.logger.info(f"  FIM: {len(fim_results)} total, {fim_unique} unique")
-        self.logger.info(f"  L2R: {len(l2r_results)} total, {l2r_unique} unique")
-        self.logger.info("=" * 60)
+        out_dir_map = self.config.get("io.out_dir_map", {})
+        output_dir = PROJECT_ROOT / out_dir_map.get(source_mode, f"data/generated/func_skeletons/{source_mode}")
         
-        return fim_results, l2r_results
-
+        self.logger.info(f"=== Orchestrating Skeleton Generation: {source_mode.upper()} ===")
+        
+        # Call SkeletonGenerator
+        results = await self.skeleton_gen.generate(
+            input_file=input_file,
+            output_dir=output_dir,
+            prompt_template=prompt_template,
+            num_samples=num_samples,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stop=stop,
+            batch_write_size=batch_write_size
+        )
+        
+        return results
+    
+    async def generate_full_pipeline(
+        self,
+        mode: Literal["FIM", "L2R"],
+        num_problems: Optional[int] = None,
+        num_skeletons: Optional[int] = None,
+    ) -> Dict[str, List[Dict]]:
+        """Run the full generation pipeline: problems → skeletons.
+        
+        Args:
+            mode: Generation mode for problems
+            num_problems: Number of problems to generate
+            num_skeletons: Number of skeletons to generate from problems
+            
+        Returns:
+            Dictionary with 'problems' and 'skeletons' lists
+        """
+        self.logger.info("=" * 80)
+        self.logger.info(f"FULL PIPELINE: {mode} Mode")
+        self.logger.info("=" * 80)
+        
+        # Stage 1: Generate problems
+        self.logger.info("Stage 1: Generating problem descriptions...")
+        problems = await self.generate_problems(mode=mode, num_samples=num_problems)
+        
+        # Stage 2: Generate skeletons
+        source_mode = mode.lower()
+        self.logger.info(f"Stage 2: Generating function skeletons from {source_mode} problems...")
+        skeletons = await self.generate_skeletons(
+            source_mode=source_mode,
+            num_samples=num_skeletons
+        )
+        
+        self.logger.info("=" * 80)
+        self.logger.info("PIPELINE COMPLETE")
+        self.logger.info(f"  Problems generated: {len(problems)}")
+        self.logger.info(f"  Skeletons generated: {len(skeletons)}")
+        self.logger.info("=" * 80)
+        
+        return {
+            "problems": problems,
+            "skeletons": skeletons
+        }

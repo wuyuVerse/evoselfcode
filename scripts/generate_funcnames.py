@@ -1,124 +1,90 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-Script to generate function names using FIM or L2R mode
+Script to generate algorithm problem descriptions using ProblemGen.
+
+Supports both FIM (Fill-in-the-Middle) and L2R (Left-to-Right) generation modes.
+
+Usage:
+    python scripts/generate_funcnames.py --mode fim
+    python scripts/generate_funcnames.py --mode l2r
+    python scripts/generate_funcnames.py --mode fim --num-samples 1000
 """
 
-import argparse
 import asyncio
 import sys
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from evoselfcode.services.datagen_service import DataGenService
-from evoselfcode.utils.logger import setup_task_logger, LoggerManager
+from evoselfcode.utils.logger import LoggerManager
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate function names using FIM or L2R mode",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Generate using FIM mode
-  python scripts/generate_funcnames.py --mode fim
-  
-  # Generate using L2R mode
-  python scripts/generate_funcnames.py --mode l2r
-  
-  # Use custom config
-  python scripts/generate_funcnames.py --mode fim --config my_config.yaml
-        """
+async def main(mode: str = "fim", num_samples: int = None):
+    """Main function to run problem generation.
+
+    Args:
+        mode (str): Generation mode, either 'fim' or 'l2r'.
+        num_samples (int, optional): Number of samples to generate. None means use config default.
+    """
+    # Setup logger
+    logger = LoggerManager.get_logger(
+        name="generate_problems",
+        module="scripts",
+        task=f"problems_{mode}"
     )
     
-    parser.add_argument(
-        "--mode",
-        choices=["fim", "l2r"],
-        required=True,
-        help="Generation mode: 'fim' (Fill-in-Middle) or 'l2r' (Left-to-Right)"
-    )
+    logger.info(f"Starting problem generation for mode: {mode.upper()}")
+    if num_samples:
+        logger.info(f"Target samples: {num_samples}")
     
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="Path to config file (default: configs/datagen/{mode}.yaml)"
-    )
+    # Determine config path based on mode
+    config_path = PROJECT_ROOT / "configs" / "datagen" / f"{mode}.yaml"
     
-    args = parser.parse_args()
-    
-    # Determine config path
-    if args.config:
-        config_path = Path(args.config)
-    else:
-        config_path = project_root / f"configs/datagen/{args.mode}.yaml"
-    
-    # Check if config exists
     if not config_path.exists():
-        print(f"Error: Config file not found: {config_path}")
+        logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
-    
-    # Setup logging
-    log_dir = project_root / "logs"
-    LoggerManager.setup_base_dir(log_dir)
-    logger = setup_task_logger("datagen", args.mode)
-    
-    mode_name = "Fill-in-Middle (FIM)" if args.mode == "fim" else "Left-to-Right (L2R)"
-    logger.info("=" * 60)
-    logger.info(f"Function Name Generation - {mode_name}")
-    logger.info("=" * 60)
-    logger.info(f"Config: {config_path}")
-    logger.info(f"Mode: {args.mode.upper()}")
-    
-    # Run generation
-    try:
-        asyncio.run(run_generation(config_path, args.mode, logger))
-    except Exception as e:
-        logger.exception(f"Error during generation: {e}")
-        sys.exit(1)
-    
-    # Print summary
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info(f"{mode_name} Generation completed!")
-    logger.info("=" * 60)
-    
-    out_dir = project_root / f"data/generated/names/{args.mode}"
-    logger.info(f"Output directory: {out_dir}")
-    
-    if args.mode == "fim":
-        logger.info("Note: FIM mode uses special tokens for fill-in-middle completion")
-    else:
-        logger.info("Note: L2R mode uses standard left-to-right completion")
-    
-    # Close loggers
-    LoggerManager.close_all()
-
-
-async def run_generation(config_path: Path, mode: str, logger):
-    """Run the generation process"""
-    import json
     
     # Create service
     service = DataGenService.from_config_path(config_path, task=mode, logger=logger)
     
-    # Generate function names
-    mode_upper = "FIM" if mode == "fim" else "L2R"
-    results = await service.generate_function_names(mode=mode_upper)
+    # Generate problems
+    results = await service.generate_problems(
+        mode=mode.upper(),
+        num_samples=num_samples
+    )
     
-    # Save results
-    out_dir = project_root / f"data/generated/names/{mode}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"✅ Generated {len(results)} unique algorithm problems")
     
-    output_file = out_dir / f"{mode}_results.jsonl"
-    with open(output_file, "w", encoding="utf-8") as f:
-        for result in results:
-            f.write(json.dumps(result, ensure_ascii=False) + "\n")
-    
-    logger.info(f"Saved {len(results)} results to: {output_file}")
+    # Show sample results
+    if results:
+        logger.info("\n=== Sample Problems ===")
+        for i, res in enumerate(results[:3], 1):
+            logger.info(f"\n--- Problem {i} ---")
+            logger.info(f"UID: {res['uid']}")
+            logger.info(f"Preview: {res['problem_description'][:200]}...")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate algorithm problem descriptions")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["fim", "l2r"],
+        required=True,
+        help="Generation mode: 'fim' or 'l2r'"
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=None,
+        help="Number of samples to generate (default: from config)"
+    )
+    
+    args = parser.parse_args()
+    
+    asyncio.run(main(mode=args.mode, num_samples=args.num_samples))
