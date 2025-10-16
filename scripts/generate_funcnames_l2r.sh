@@ -16,11 +16,12 @@ if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
 fi
 
 # Create logs directory
-mkdir -p "$PROJECT_ROOT/logs/scripts"
+mkdir -p "$PROJECT_ROOT/logs/datagen/l2r"
 
 # Generate timestamp for log file
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="$PROJECT_ROOT/logs/scripts/l2r_generation_${TIMESTAMP}.log"
+LOG_FILE="$PROJECT_ROOT/logs/datagen/l2r/generation_${TIMESTAMP}.log"
+PID_FILE="$PROJECT_ROOT/logs/datagen/l2r/generation.pid"
 
 # Run in background and redirect output to log file
 echo "🚀 Starting L2R generation in background..."
@@ -32,6 +33,6 @@ nohup python scripts/generate_funcnames.py --mode l2r "$@" > "$LOG_FILE" 2>&1 &
 PID=$!
 echo "✅ Process started with PID: $PID"
 echo "📊 Monitor progress: tail -f $LOG_FILE"
-echo "$PID" > "$PROJECT_ROOT/logs/scripts/l2r_generation.pid"
-echo "🛑 To stop: kill $(cat $PROJECT_ROOT/logs/scripts/l2r_generation.pid)"
+echo "$PID" > "$PID_FILE"
+echo "🛑 To stop: kill $(cat $PID_FILE)"
 

@@ -18,7 +18,6 @@ prompts:
         IMPORTANT Requirements:
         - Each problem MUST be unique and different from others. Be creative!
         - Cover diverse algorithmic categories (arrays, strings, graphs, DP, trees, greedy, math, data structures, etc.)
-        - Avoid repetitive or trivial problems.
         - Use clear and precise English.
 
         Problem 1:
@@ -69,7 +68,7 @@ namegen:
 
 # I/O settings
 io:
-  out_names_dir: "data/generated/names/fim"
+  out_names_dir: "data/generated/problems_desc/fim"
 
 # Model configuration reference (relative to CONFIGS_DIR)
 model_config: "model.yaml"

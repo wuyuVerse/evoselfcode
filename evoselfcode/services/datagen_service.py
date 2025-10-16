@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
@@ -91,6 +93,18 @@ class DataGenService:
         
         return cls(config, client_manager, prompt_builder, filter_chain, logger)
     
+    def _write_jsonl(self, filepath: Path, data: List[Dict]) -> None:
+        """Helper method to write JSONL data (blocking I/O)"""
+        with open(filepath, "a") as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    
+    def _write_hashes(self, filepath: Path, hashes: List[str]) -> None:
+        """Helper method to write hash table (blocking I/O)"""
+        with open(filepath, "a") as f:
+            for h in hashes:
+                f.write(h + "\n")
+    
     async def generate_function_names(
         self,
         mode: Literal["FIM", "L2R"] = "FIM",
@@ -108,10 +122,6 @@ class DataGenService:
         Returns:
             List of candidates with function names
         """
-        import hashlib
-        import json
-        from pathlib import Path
-        
         client = self.client_manager.completion_client
         
         # Get parameters
@@ -222,19 +232,31 @@ class DataGenService:
                 progress.update(task_id, advance=batch_size)
                 self.logger.info(f"Progress: {completed}/{num_samples}, pending: {len(pending_write)}, duplicates: {total_duplicates}")
                 
-                # Write every batch_write_size samples
+                # Write every batch_write_size samples (non-blocking)
                 if len(pending_write) >= batch_write_size:
-                    # Write to output file (append mode)
-                    with open(output_file, "a") as f:
-                        for item in pending_write:
-                            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+                    # Create a copy for async writing
+                    write_data = pending_write.copy()
+                    write_hashes = pending_hashes.copy()
                     
-                    # Write to hash table (append mode)
-                    with open(hash_table_file, "a") as f:
-                        for h in pending_hashes:
-                            f.write(h + "\n")
+                    # Async write task (fire and forget)
+                    async def write_batch():
+                        try:
+                            # Write to output file (append mode)
+                            await asyncio.to_thread(
+                                lambda: self._write_jsonl(output_file, write_data)
+                            )
+                            
+                            # Write to hash table (append mode)
+                            await asyncio.to_thread(
+                                lambda: self._write_hashes(hash_table_file, write_hashes)
+                            )
+                            
+                            self.logger.info(f"✅ Wrote {len(write_data)} samples to {output_file}")
+                        except Exception as e:
+                            self.logger.error(f"❌ Failed to write batch: {e}")
                     
-                    self.logger.info(f"✅ Wrote {len(pending_write)} samples to {output_file}")
+                    # Schedule write task without waiting
+                    asyncio.create_task(write_batch())
                     
                     # Update existing hashes and move to all_valid_results
                     existing_hashes.update(pending_hashes)
@@ -244,18 +266,20 @@ class DataGenService:
                     pending_write = []
                     pending_hashes = []
         
-        # Write remaining samples
+        # Write remaining samples (synchronous for final write to ensure completion)
         if pending_write:
-            with open(output_file, "a") as f:
-                for item in pending_write:
-                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
-            
-            with open(hash_table_file, "a") as f:
-                for h in pending_hashes:
-                    f.write(h + "\n")
+            await asyncio.to_thread(
+                lambda: self._write_jsonl(output_file, pending_write)
+            )
+            await asyncio.to_thread(
+                lambda: self._write_hashes(hash_table_file, pending_hashes)
+            )
             
             self.logger.info(f"✅ Wrote final {len(pending_write)} samples to {output_file}")
             all_valid_results.extend(pending_write)
+        
+        # Wait a bit to ensure all async writes complete
+        await asyncio.sleep(0.5)
         
         # Summary
         self.logger.info(f"✅ Generation complete: {len(all_valid_results)} unique problems generated, {total_duplicates} duplicates skipped")
