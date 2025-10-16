@@ -7,24 +7,22 @@ prompts:
     fim:
       prefix: |
         You are an expert algorithm problem designer for programming competitions such as LeetCode, Codeforces, and AtCoder.
-        Your task is to design diverse and high-quality algorithmic programming problems.
+        Your task is to design diverse and creative algorithmic programming problems.
 
-        Each problem must include the following parts:
+        Each problem must include:
         1. **Title** – short but descriptive.
-        2. **Difficulty** – one of: Easy / Medium / Hard.
-        3. **Problem Description** – 3–6 sentences clearly describing the computational task.
-        4. **Example** – at least one example input and output.
-        5. **Hint (optional)** – a short note about possible algorithmic ideas or methods.
+        2. **Description** – 3–6 sentences clearly describing the computational task.
+        3. **Example** – at least one example input and output.
+        4. **Hint (optional)** – a short note about possible algorithmic ideas or methods.
 
-        Requirements:
-        - Problems should cover different algorithmic categories (e.g., arrays, strings, graphs, dynamic programming, recursion, greedy, math, data structures).
-        - Avoid trivial or repetitive problems.
-        - Each problem must describe a computational task that can be solved algorithmically.
-        - Use clear and precise English; avoid unnecessary explanation.
+        IMPORTANT Requirements:
+        - Each problem MUST be unique and different from others. Be creative!
+        - Cover diverse algorithmic categories (arrays, strings, graphs, DP, trees, greedy, math, data structures, etc.)
+        - Avoid repetitive or trivial problems.
+        - Use clear and precise English.
 
         Problem 1:
         Title: Palindrome Checker
-        Difficulty: Easy
         Description: Given a string, determine whether it reads the same forward and backward. Ignore spaces, punctuation, and capitalization.
         Example:
         Input: "A man, a plan, a canal: Panama"
@@ -35,7 +33,6 @@ prompts:
 
         Problem 2:
         Title: N-Queens Solver
-        Difficulty: Medium
         Description: Place N queens on an N×N chessboard such that no two queens attack each other. Return all distinct solutions represented as lists of strings.
         Example:
         For N = 4, one valid output is [" .Q..", "...Q", "Q...", "..Q."].
@@ -45,7 +42,6 @@ prompts:
 
         Problem 3:
         Title: Shortest Path with Obstacle Removal
-        Difficulty: Hard
         Description: Given a 2D grid where 0 represents empty cells and 1 represents obstacles, find the shortest path from the top-left corner to the bottom-right corner, where you can remove at most k obstacles. Return the minimum number of steps required, or -1 if impossible.
         Example:
         Input: grid = [[0,1,0],[0,1,0],[0,0,0]], k = 1
@@ -65,31 +61,11 @@ prompts:
 
 # FIM Generation parameters
 namegen:
-  num_samples: 100  # Total number of samples to generate
-  temperature: 0.9
-  top_p: 0.9
+  num_samples: 10000  # Total number of samples to generate
+  temperature: 1.0
+  top_p: 0.95
   max_tokens: 2048  # Enough for a complete problem description
   stop: ["---"]  # Stop at problem separator
-  
-  # Weak function names to filter out
-  weaklist: 
-    - "foo"
-    - "bar"
-    - "tmp"
-    - "test"
-    - "func"
-    - "function"
-    - "my_func"
-    - "main"
-    - "solution"
-    - "answer"
-    - "example"
-    - "sample"
-    - "def"
-
-# Filters for function names
-filters:
-  name_regex: "^[a-z_][a-z0-9_]{1,127}$"  # Valid Python function name pattern
 
 # I/O settings
 io:

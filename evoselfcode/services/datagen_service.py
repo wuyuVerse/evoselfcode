@@ -95,6 +95,7 @@ class DataGenService:
         self,
         mode: Literal["FIM", "L2R"] = "FIM",
         num_samples: Optional[int] = None,
+        batch_write_size: int = 50,
     ) -> List[Dict]:
         """
         Generate function names using FIM or L2R mode.
@@ -102,10 +103,15 @@ class DataGenService:
         Args:
             mode: "FIM" or "L2R"
             num_samples: Total number of samples to generate (overrides config)
+            batch_write_size: Write to disk every N samples (default: 50)
         
         Returns:
             List of candidates with function names
         """
+        import hashlib
+        import json
+        from pathlib import Path
+        
         client = self.client_manager.completion_client
         
         # Get parameters
@@ -149,9 +155,27 @@ class DataGenService:
             base_prompt = self.prompt_builder.build_funcname_l2r()
             self.logger.debug(f"L2R prompt: {repr(base_prompt[:50])}...")
         
-        # Generate all samples in batches with progress
-        all_results: List[List[Dict]] = []
+        # Setup output directory and hash table
+        out_dir = Path(self.config.get("io.out_names_dir", f"data/generated/names/{mode.lower()}"))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
+        hash_table_file = out_dir / "hash_table.txt"
+        output_file = out_dir / f"{mode.lower()}_results.jsonl"
+        
+        # Load existing hash table
+        existing_hashes = set()
+        if hash_table_file.exists():
+            with open(hash_table_file, "r") as f:
+                existing_hashes = set(line.strip() for line in f if line.strip())
+            self.logger.info(f"Loaded {len(existing_hashes)} existing hashes from {hash_table_file}")
+        
+        # Generate all samples in batches with progress and incremental writing
+        all_valid_results: List[Dict] = []
+        pending_write: List[Dict] = []
+        pending_hashes: List[str] = []
         completed = 0
+        total_duplicates = 0
+        
         with Progress() as progress:
             task_id = progress.add_task("Generating", total=num_samples)
             for batch_idx, start_idx in enumerate(range(0, num_samples, max_concurrent)):
@@ -169,41 +193,76 @@ class DataGenService:
                 )
                 
                 self.logger.info(f"[Batch {batch_idx+1}/{num_batches}] Received {len(batch_results)} responses")
-                all_results.extend(batch_results)
+                
+                # Process batch results immediately
+                for result_batch in batch_results:
+                    for result in result_batch:
+                        raw_text = result.get("text", "").strip()
+                        if not raw_text:
+                            continue
+                        
+                        # Compute hash as UID
+                        uid = hashlib.sha256(raw_text.encode('utf-8')).hexdigest()[:16]
+                        
+                        # Check for duplicates
+                        if uid in existing_hashes or uid in pending_hashes:
+                            total_duplicates += 1
+                            continue
+                        
+                        # Add to pending
+                        pending_hashes.append(uid)
+                        pending_write.append({
+                            "uid": uid,
+                            "problem_description": raw_text,
+                            "source": mode,
+                            "raw_text": raw_text,
+                        })
+                
                 completed += batch_size
                 progress.update(task_id, advance=batch_size)
-                self.logger.info(f"Progress: {completed}/{num_samples}")
+                self.logger.info(f"Progress: {completed}/{num_samples}, pending: {len(pending_write)}, duplicates: {total_duplicates}")
+                
+                # Write every batch_write_size samples
+                if len(pending_write) >= batch_write_size:
+                    # Write to output file (append mode)
+                    with open(output_file, "a") as f:
+                        for item in pending_write:
+                            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+                    
+                    # Write to hash table (append mode)
+                    with open(hash_table_file, "a") as f:
+                        for h in pending_hashes:
+                            f.write(h + "\n")
+                    
+                    self.logger.info(f"✅ Wrote {len(pending_write)} samples to {output_file}")
+                    
+                    # Update existing hashes and move to all_valid_results
+                    existing_hashes.update(pending_hashes)
+                    all_valid_results.extend(pending_write)
+                    
+                    # Clear pending
+                    pending_write = []
+                    pending_hashes = []
         
-        # Flatten results
-        flattened = []
-        for batch in all_results:
-            flattened.extend(batch)
-        
-        # Extract problem descriptions (no function names for now)
-        candidates = []
-        for idx, result in enumerate(flattened):
-            raw_text = result.get("text", "").strip()
+        # Write remaining samples
+        if pending_write:
+            with open(output_file, "a") as f:
+                for item in pending_write:
+                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
             
-            # Log first 3 samples for debugging
-            if idx < 3:
-                self.logger.info(f"Sample {idx+1} raw output (full): {repr(raw_text)}")
+            with open(hash_table_file, "a") as f:
+                for h in pending_hashes:
+                    f.write(h + "\n")
             
-            # For now, just store the description (which is the algorithm problem)
-            # We'll generate function names in a later stage
-            if raw_text:  # Only keep non-empty descriptions
-                candidates.append({
-                    "problem_description": raw_text,
-                    "source": mode,
-                    "raw_text": raw_text,
-                })
+            self.logger.info(f"✅ Wrote final {len(pending_write)} samples to {output_file}")
+            all_valid_results.extend(pending_write)
         
-        # No filtering needed for descriptions (we'll filter when generating function names later)
-        filtered = candidates
+        # Summary
+        self.logger.info(f"✅ Generation complete: {len(all_valid_results)} unique problems generated, {total_duplicates} duplicates skipped")
+        self.logger.info(f"📁 Output file: {output_file}")
+        self.logger.info(f"🔑 Hash table: {hash_table_file} ({len(existing_hashes)} total hashes)")
         
-        self.logger.info(f"Generated {len(filtered)}/{len(candidates)} valid function names")
-        self.logger.info(f"Filter stats: {self.filter_chain.get_stats()}")
-        
-        return filtered
+        return all_valid_results
     
     async def generate_function_names_ab_test(
         self,

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Script to generate function names using L2R (Left-to-Right) completion mode
+# Runs in background and logs to file
 
 set -e
 
@@ -14,6 +15,23 @@ if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
   source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
-# Use Python script instead of CLI
-python scripts/generate_funcnames.py --mode l2r "$@"
+# Create logs directory
+mkdir -p "$PROJECT_ROOT/logs/scripts"
+
+# Generate timestamp for log file
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="$PROJECT_ROOT/logs/scripts/l2r_generation_${TIMESTAMP}.log"
+
+# Run in background and redirect output to log file
+echo "🚀 Starting L2R generation in background..."
+echo "📝 Log file: $LOG_FILE"
+
+nohup python scripts/generate_funcnames.py --mode l2r "$@" > "$LOG_FILE" 2>&1 &
+
+# Get PID
+PID=$!
+echo "✅ Process started with PID: $PID"
+echo "📊 Monitor progress: tail -f $LOG_FILE"
+echo "$PID" > "$PROJECT_ROOT/logs/scripts/l2r_generation.pid"
+echo "🛑 To stop: kill $(cat $PROJECT_ROOT/logs/scripts/l2r_generation.pid)"
 
