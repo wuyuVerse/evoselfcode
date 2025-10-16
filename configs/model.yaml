@@ -1,0 +1,39 @@
+# Model API Configuration
+
+api:
+  base_url: "http://qwen2code32-0.t-skyinfer-wzhang.svc.cluster.local/v1"
+  api_key: ""  # Optional, for authentication
+  timeout_s: 120
+  max_retries: 5
+  headers: {}
+  
+  # Concurrency settings
+  concurrency:
+    max_concurrent_requests: 5  # Reduce concurrency to improve stability
+  
+  # FIM mode configuration
+  fim:
+    mode: "special_tokens"  # Use special tokens for FIM
+    prefix_token: "<|fim_prefix|>"
+    suffix_token: "<|fim_suffix|>"
+    middle_token: "<|fim_middle|>"
+
+# Model configurations
+models:
+  # Default model for code generation
+  default: "Qwen2.5-Coder-32B"
+  
+  # Model-specific settings
+  qwen_coder_32b:
+    name: "Qwen2.5-Coder-32B"
+    max_tokens: 4096
+    supports_fim: true
+    supports_logprobs: true
+  
+  # Add more models as needed
+  deepseek_v25:
+    name: "deepseek-ai/DeepSeek-V2.5"
+    max_tokens: 4096
+    supports_fim: true
+    supports_logprobs: true
+

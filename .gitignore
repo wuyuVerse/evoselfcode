@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment / tooling
+.env
+.env.*
+.python-version
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Caches
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# Project outputs
+checkpoints/
+logs/
+outputs/
+data/generated/
+wandb/
+
+# Node / web (if any)
+node_modules/
+dist/
+build/
+
