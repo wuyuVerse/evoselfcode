@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from evoselfcode.services.datagen_service import DataGenService
@@ -32,7 +32,7 @@ async def main(mode: str = "fim", num_samples: int = None):
     # Setup logger
     logger = LoggerManager.get_logger(
         name="generate_problems",
-        module="scripts",
+        module="datagen",
         task=f"problems_{mode}"
     )
     

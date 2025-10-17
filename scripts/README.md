@@ -2,22 +2,53 @@
 
 Utility scripts for running various pipeline tasks.
 
+## Directory Structure
+
+```
+scripts/
+├── datagen/              # Data generation pipeline scripts
+│   ├── generate_funcnames.py        # Generate algorithm problem descriptions
+│   ├── generate_funcnames.sh        # Wrapper script
+│   ├── generate_funcnames_fim.sh    # FIM mode (background)
+│   ├── generate_funcnames_l2r.sh    # L2R mode (background)
+│   ├── generate_skeletons.py        # Generate function skeletons
+│   ├── generate_skeletons_fim.sh    # FIM skeleton generation (background)
+│   ├── generate_skeletons_l2r.sh    # L2R skeleton generation (background)
+│   ├── generate_code.py             # Generate function implementations
+│   ├── generate_code_fim.sh         # FIM code generation (background)
+│   └── generate_code_l2r.sh         # L2R code generation (background)
+└── test_client.py        # API client testing utility
+```
+
 ## Data Generation Scripts
 
-### generate_funcnames.py (Unified Script)
+### Problem Description Generation
 
-Generate function names using FIM or L2R mode.
+Generate algorithm problem descriptions using FIM or L2R mode.
 
-**Usage:**
+**Direct usage:**
 ```bash
 # Generate using FIM mode
-python scripts/generate_funcnames.py --mode fim
+python scripts/datagen/generate_funcnames.py --mode fim
 
 # Generate using L2R mode
-python scripts/generate_funcnames.py --mode l2r
+python scripts/datagen/generate_funcnames.py --mode l2r
 
-# Use custom config
-python scripts/generate_funcnames.py --mode fim --config my_config.yaml
+# Limit number of samples
+python scripts/datagen/generate_funcnames.py --mode fim --num-samples 100
+```
+
+**Background execution:**
+```bash
+# FIM mode (runs in background with logging)
+bash scripts/datagen/generate_funcnames_fim.sh
+
+# L2R mode (runs in background with logging)
+bash scripts/datagen/generate_funcnames_l2r.sh
+
+# Monitor progress
+tail -f logs/datagen/problems_fim/generation_*.log
+tail -f logs/datagen/problems_l2r/generation_*.log
 ```
 
 **Configurations:**
@@ -25,88 +56,95 @@ python scripts/generate_funcnames.py --mode fim --config my_config.yaml
 - L2R mode: `configs/datagen/l2r.yaml`
 
 **Output:**
-- FIM mode: `data/generated/names/fim/*.jsonl`
-- L2R mode: `data/generated/names/l2r/*.jsonl`
+- FIM mode: `data/generated/problems_desc/fim/fim_results.jsonl`
+- L2R mode: `data/generated/problems_desc/l2r/l2r_results.jsonl`
 
-### generate_funcnames_fim.sh / generate_funcnames_l2r.sh
+### Function Skeleton Generation
 
-Shell script wrappers for convenience.
+Generate Python function skeletons from problem descriptions.
 
-**Usage:**
+**Direct usage:**
+```bash
+# Generate from FIM problems
+python scripts/datagen/generate_skeletons.py --source fim
+
+# Generate from L2R problems
+python scripts/datagen/generate_skeletons.py --source l2r
+
+# Limit number of samples
+python scripts/datagen/generate_skeletons.py --source fim --num-samples 50
+```
+
+**Background execution:**
 ```bash
 # FIM mode
-bash scripts/generate_funcnames_fim.sh
+bash scripts/datagen/generate_skeletons_fim.sh
 
 # L2R mode
-bash scripts/generate_funcnames_l2r.sh
+bash scripts/datagen/generate_skeletons_l2r.sh
+
+# Monitor progress
+tail -f logs/datagen/skeleton_fim/generation_*.log
+tail -f logs/datagen/skeleton_l2r/generation_*.log
 ```
 
-## CLI Usage
+**Configuration:**
+- `configs/datagen/skeleton.yaml`
 
-The new CLI is organized into subcommands:
+**Output:**
+- FIM mode: `data/generated/func_skeletons/fim/skeletons.jsonl`
+- L2R mode: `data/generated/func_skeletons/l2r/skeletons.jsonl`
 
-### Data Generation
+### Function Implementation Generation
+
+Generate complete Python function implementations from skeletons.
+
+**Direct usage:**
 ```bash
-# Generate function names - FIM mode
-python -m evoselfcode.cli datagen generate-names --config configs/datagen/fim.yaml
+# Generate from FIM skeletons
+python scripts/datagen/generate_code.py --source fim
 
-# Generate function names - L2R mode
-python -m evoselfcode.cli datagen generate-names --config configs/datagen/l2r.yaml
+# Generate from L2R skeletons
+python scripts/datagen/generate_code.py --source l2r
 
-# Or use the unified script
-python scripts/generate_funcnames.py --mode fim
-python scripts/generate_funcnames.py --mode l2r
-
-# Generate code (TODO)
-python -m evoselfcode.cli datagen generate-code --names data/generated/names/filtered.jsonl
-
-# Score candidates (TODO)
-python -m evoselfcode.cli datagen score --input data/generated/code/raw.jsonl
-
-# Filter candidates (TODO)
-python -m evoselfcode.cli datagen filter --input data/generated/code/scored.jsonl --output data/generated/code/filtered.jsonl
+# Limit number of samples
+python scripts/datagen/generate_code.py --source fim --num-samples 50
 ```
 
-### Training Pipeline
+**Background execution:**
 ```bash
-# Generate samples
-python -m evoselfcode.cli pipeline generate --config configs/generation.yaml
+# FIM mode
+bash scripts/datagen/generate_code_fim.sh
 
-# Score samples
-python -m evoselfcode.cli pipeline score --config configs/generation.yaml
+# L2R mode
+bash scripts/datagen/generate_code_l2r.sh
 
-# Filter samples
-python -m evoselfcode.cli pipeline filter --config configs/generation.yaml
-
-# Train D2C model
-python -m evoselfcode.cli pipeline train-d2c --config configs/train_d2c.yaml
-
-# Train C2D model
-python -m evoselfcode.cli pipeline train-c2d --config configs/train_c2d.yaml
-
-# Run iterative training
-python -m evoselfcode.cli pipeline iterate --config configs/iterate.yaml
+# Monitor progress
+tail -f logs/datagen/codegen_fim/generation_*.log
+tail -f logs/datagen/codegen_l2r/generation_*.log
 ```
 
-### Evaluation
+**Configuration:**
+- `configs/datagen/codegen.yaml`
+
+**Output:**
+- FIM mode: `data/generated/func_implementations/fim/implementations.jsonl`
+- L2R mode: `data/generated/func_implementations/l2r/implementations.jsonl`
+
+## Pipeline Overview
+
+The complete data generation pipeline consists of three stages:
+
+1. **Problem Description Generation** → `data/generated/problems_desc/{fim|l2r}/`
+2. **Function Skeleton Generation** → `data/generated/func_skeletons/{fim|l2r}/`
+3. **Function Implementation Generation** → `data/generated/func_implementations/{fim|l2r}/`
+
+Each stage can be run independently or as part of the full pipeline.
+
+## Testing
+
+Test API client connectivity:
 ```bash
-# Evaluate on specific benchmark
-python -m evoselfcode.cli eval humaneval --ckpt checkpoints/model_v1
-python -m evoselfcode.cli eval mbpp --ckpt checkpoints/model_v1
-python -m evoselfcode.cli eval lcb --ckpt checkpoints/model_v1
-python -m evoselfcode.cli eval bigcodebench --ckpt checkpoints/model_v1
-
-# Evaluate on all benchmarks
-python -m evoselfcode.cli eval all --ckpt checkpoints/model_v1
-```
-
-## Help
-
-Get help for any command:
-```bash
-python -m evoselfcode.cli --help
-python -m evoselfcode.cli datagen --help
-python -m evoselfcode.cli pipeline --help
-python -m evoselfcode.cli eval --help
+python scripts/test_client.py
 ```
 

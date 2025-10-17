@@ -1,0 +1,205 @@
+# Configuration for Code Implementation Generation from Function Skeletons
+# This stage reads function skeletons and generates complete implementations
+
+model_config: "model.yaml"
+
+io:
+  # Input source configuration
+  source:
+    mode: "fim"  # Options: "fim" or "l2r"
+    
+    # Directory mapping for skeleton sources
+    dir_map:
+      fim: "data/generated/func_skeletons/fim"
+      l2r: "data/generated/func_skeletons/l2r"
+    
+    # Input file name
+    file_name: "skeletons.jsonl"
+    
+    # Keys to extract from input JSONL
+    problem_text_key: "problem_text"
+    skeleton_code_key: "skeleton_code"
+    function_name_key: "function_name"
+    valid_key: "valid"
+  
+  # Output configuration
+  out_dir_map:
+    fim: "data/generated/func_implementations/fim"
+    l2r: "data/generated/func_implementations/l2r"
+  
+  out_file_name: "implementations.jsonl"
+  hash_table_name: "hash_table.txt"
+
+api:
+  concurrency:
+    max_concurrent_requests: 5
+
+codegen:
+  # Sampling parameters for code generation
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 2048
+  stop: ["\n\ndef ", "\n\nclass ", "\n\nif __name__"]
+  
+  # Batch writing configuration
+  batch_write_size: 50
+  
+  # Number of samples to process (null means process all available)
+  num_samples: null
+  
+  # Validation
+  validate_syntax: true
+  validate_imports: true
+
+prompts:
+  codegen:
+    # System prompt + few-shot examples
+    # Uses {{problem}} and {{skeleton}} placeholders
+    template: |
+      You are an expert Python algorithm implementation engineer.
+      Your task is to **read the algorithm problem description and the given function definition** (which already includes a detailed docstring), and then write the correct, efficient, and clean implementation for that function.
+
+      ### Your responsibilities:
+
+      1. Carefully understand the **problem description**, including its inputs, expected outputs, and constraints.
+      2. Follow the **function definition** exactly — name, parameters, and return type must remain unchanged.
+      3. Implement a correct and efficient algorithm that satisfies the problem requirements.
+      4. Follow best practices:
+         * Write readable, maintainable Python code.
+         * Use standard libraries when appropriate (e.g., `heapq`, `deque`, `bisect`, `math`, etc.).
+         * Avoid unnecessary comments or explanations.
+         * Output only the **function body implementation** (the code inside the function).
+
+      Return only the function body code in plain text Python format.
+
+      ---
+
+      Example 1
+      Problem:
+      Title: Palindrome Checker
+      Description: Given a string, determine whether it reads the same forward and backward. Ignore spaces, punctuation, and capitalization.
+      Example:
+      Input: "A man, a plan, a canal: Panama"
+      Output: True
+      Hint: Two-pointer technique or string reversal.
+
+      Function Definition:
+      def is_palindrome_string(s: str) -> bool:
+          """Check if the given string is a palindrome ignoring spaces, punctuation, and capitalization.
+
+          The function normalizes the input string by removing spaces and punctuation,
+          converts it to lowercase, and checks if it reads the same forward and backward.
+
+          Args:
+              s (str): The input string to check.
+
+          Returns:
+              bool: True if the string is a palindrome, False otherwise.
+          """
+
+          s = ''.join(ch.lower() for ch in s if ch.isalnum())
+          return s == s[::-1]
+
+      ---
+
+      Example 2
+      Problem:
+      Title: N-Queens Solver
+      Description: Place N queens on an N×N chessboard such that no two queens attack each other. Return all distinct solutions represented as lists of strings.
+      Example:
+      For N = 4, one valid output is [".Q..", "...Q", "Q...", "..Q."].
+      Hint: Backtracking with pruning.
+
+      Function Definition:
+      def solve_n_queens(n: int) -> list[list[str]]:
+          """Find all valid placements of N queens on an N×N chessboard.
+
+          Uses backtracking to explore all valid configurations ensuring
+          no two queens share the same row, column, or diagonal.
+
+          Args:
+              n (int): The size of the chessboard and the number of queens to place.
+
+          Returns:
+              list[list[str]]: A list of all valid chessboard configurations represented as strings.
+          """
+
+          res = []
+          board = [["."] * n for _ in range(n)]
+          
+          def is_valid(r, c):
+              for i in range(r):
+                  if board[i][c] == "Q":
+                      return False
+                  if c - (r - i) >= 0 and board[i][c - (r - i)] == "Q":
+                      return False
+                  if c + (r - i) < n and board[i][c + (r - i)] == "Q":
+                      return False
+              return True
+          
+          def backtrack(r=0):
+              if r == n:
+                  res.append(["".join(row) for row in board])
+                  return
+              for c in range(n):
+                  if is_valid(r, c):
+                      board[r][c] = "Q"
+                      backtrack(r + 1)
+                      board[r][c] = "."
+          
+          backtrack()
+          return res
+
+      ---
+
+      Example 3
+      Problem:
+      Title: Shortest Path with Obstacle Removal
+      Description: Given a 2D grid where 0 represents empty cells and 1 represents obstacles, find the shortest path from the top-left corner to the bottom-right corner, where you can remove at most k obstacles. Return the minimum number of steps required, or -1 if impossible.
+      Example:
+      Input: grid = [[0,1,0],[0,1,0],[0,0,0]], k = 1
+      Output: 5
+      Hint: Use BFS with state compression (x, y, remaining_k) and pruning.
+
+      Function Definition:
+      def shortest_path_with_obstacle_removal(grid: list[list[int]], k: int) -> int:
+          """Compute the shortest path in a grid allowing removal of up to k obstacles.
+
+          Applies breadth-first search (BFS) with state compression (x, y, remaining_k)
+          and pruning to find the minimal path length considering obstacle removals.
+
+          Args:
+              grid (list[list[int]]): The grid representing obstacles and empty spaces.
+              k (int): The maximum number of obstacles that can be removed.
+
+          Returns:
+              int: The minimum number of steps required to reach the goal, or -1 if unreachable.
+          """
+
+          from collections import deque
+          m, n = len(grid), len(grid[0])
+          visited = set()
+          q = deque([(0, 0, k, 0)])
+          
+          while q:
+              x, y, rem, steps = q.popleft()
+              if (x, y) == (m - 1, n - 1):
+                  return steps
+              for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                  nx, ny = x + dx, y + dy
+                  if 0 <= nx < m and 0 <= ny < n:
+                      nk = rem - grid[nx][ny]
+                      if nk >= 0 and (nx, ny, nk) not in visited:
+                          visited.add((nx, ny, nk))
+                          q.append((nx, ny, nk, steps + 1))
+          return -1
+
+      ---
+
+      Example 4
+      Problem:
+      {{problem}}
+
+      Function Definition:
+      {{skeleton}}
+

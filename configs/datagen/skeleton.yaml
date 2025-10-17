@@ -32,7 +32,7 @@ io:
 
 api:
   concurrency:
-    max_concurrent_requests: 5
+    max_concurrent_requests: 100
 
 skeleton:
   # Sampling parameters for skeleton generation
@@ -90,6 +90,8 @@ prompts:
               bool: True if the string is a palindrome, False otherwise.
           """
 
+      ---
+
       Example 2
       Problem:
       Title: N-Queens Solver
@@ -111,6 +113,8 @@ prompts:
           Returns:
               list[list[str]]: A list of all valid chessboard configurations represented as strings.
           """
+
+      ---
 
       Example 3
       Problem:
@@ -135,6 +139,8 @@ prompts:
           Returns:
               int: The minimum number of steps required to reach the goal, or -1 if unreachable.
           """
+
+      ---
 
       Example 4
       Problem:

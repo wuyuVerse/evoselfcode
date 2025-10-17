@@ -17,7 +17,7 @@ from typing import Dict, List, Literal, Optional
 
 from ..core import ConfigManager, ClientManager, PromptBuilder, FilterChain
 from ..constants import CONFIGS_DIR, PROJECT_ROOT
-from ..datagen.preprocess import ProblemGenerator, SkeletonGenerator
+from ..datagen.preprocess import ProblemGenerator, SkeletonGenerator, CodeGenerator
 from ..utils.logger import setup_task_logger
 
 
@@ -198,21 +198,89 @@ class DataGenService:
         
         return results
     
+    async def generate_code(
+        self,
+        source_mode: str,
+        num_samples: Optional[int] = None,
+    ) -> List[Dict]:
+        """Orchestrates the generation of function implementations from skeletons.
+        
+        Args:
+            source_mode: Source mode ('fim' or 'l2r')
+            num_samples: Number of samples to process (None = all)
+            
+        Returns:
+            List of generated implementation dictionaries
+        """
+        self.logger.info(f"=== Orchestrating Code Generation: {source_mode.upper()} ===")
+        
+        # Get config for code generation
+        codegen_cfg = self.config.get_section("codegen")
+        io_cfg = self.config.get_section("io")
+        
+        # Get input file path
+        source_cfg = io_cfg.get("source", {})
+        dir_map = source_cfg.get("dir_map", {})
+        input_dir = Path(dir_map.get(source_mode, f"data/generated/func_skeletons/{source_mode}"))
+        input_file = input_dir / source_cfg.get("file_name", "skeletons.jsonl")
+        
+        # Get output directory
+        output_dir_map = io_cfg.get("out_dir_map", {})
+        output_dir = Path(output_dir_map.get(source_mode, f"data/generated/func_implementations/{source_mode}"))
+        
+        # Get prompt template
+        prompts_cfg = self.config.get_section("prompts")
+        prompt_template = prompts_cfg.get("codegen.template", "")
+        
+        if not prompt_template:
+            raise ValueError("Code generation prompt template not found in config")
+        
+        # Create CodeGenerator instance
+        code_generator = CodeGenerator(
+            client_manager=self.client_manager,
+            config=codegen_cfg,
+            logger=self.logger
+        )
+        
+        # Generate implementations
+        results = await code_generator.generate(
+            input_file=input_file,
+            output_dir=output_dir,
+            prompt_template=prompt_template,
+            num_samples=num_samples,
+            temperature=codegen_cfg.get("temperature", 0.7),
+            top_p=codegen_cfg.get("top_p", 0.95),
+            max_tokens=codegen_cfg.get("max_tokens", 1024),
+            stop=codegen_cfg.get("stop", ["\n\ndef ", "\n\nclass "]),
+            batch_write_size=codegen_cfg.get("batch_write_size", 50),
+            problem_key=source_cfg.get("problem_text_key", "problem_text"),
+            skeleton_key=source_cfg.get("skeleton_code_key", "skeleton_code"),
+            function_name_key=source_cfg.get("function_name_key", "function_name"),
+            skip_invalid=False,  # Skeletons no longer contain invalid entries
+            validate_syntax=codegen_cfg.get("validate_syntax", True),
+            validate_imports=codegen_cfg.get("validate_imports", True)
+        )
+        
+        self.logger.info(f"✅ Generated {len(results)} unique function implementations")
+        return results
+    
     async def generate_full_pipeline(
         self,
         mode: Literal["FIM", "L2R"],
         num_problems: Optional[int] = None,
         num_skeletons: Optional[int] = None,
+        num_implementations: Optional[int] = None,
     ) -> Dict[str, List[Dict]]:
-        """Run the full generation pipeline: problems → skeletons.
+        """Run the full generation pipeline: problems → skeletons → implementations.
         
         Args:
             mode: Generation mode for problems
             num_problems: Number of problems to generate
             num_skeletons: Number of skeletons to generate from problems
+            num_implementations: Number of implementations to generate
             
         Returns:
-            Dictionary with 'problems' and 'skeletons' lists
+            Dictionary with 'problems', 'skeletons', and 'implementations' lists
         """
         self.logger.info("=" * 80)
         self.logger.info(f"FULL PIPELINE: {mode} Mode")
@@ -230,13 +298,22 @@ class DataGenService:
             num_samples=num_skeletons
         )
         
+        # Stage 3: Generate implementations
+        self.logger.info(f"Stage 3: Generating function implementations from {source_mode} skeletons...")
+        implementations = await self.generate_code(
+            source_mode=source_mode,
+            num_samples=num_implementations
+        )
+        
         self.logger.info("=" * 80)
         self.logger.info("PIPELINE COMPLETE")
         self.logger.info(f"  Problems generated: {len(problems)}")
         self.logger.info(f"  Skeletons generated: {len(skeletons)}")
+        self.logger.info(f"  Implementations generated: {len(implementations)}")
         self.logger.info("=" * 80)
         
         return {
             "problems": problems,
-            "skeletons": skeletons
+            "skeletons": skeletons,
+            "implementations": implementations
         }

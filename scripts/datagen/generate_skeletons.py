@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from evoselfcode.services.datagen_service import DataGenService
@@ -30,7 +30,7 @@ async def main(source: str = "fim", num_samples: int = None):
     # Setup logger
     logger = LoggerManager.get_logger(
         name="generate_skeletons",
-        module="scripts",
+        module="datagen",
         task=f"skeleton_{source}"
     )
     
@@ -39,7 +39,7 @@ async def main(source: str = "fim", num_samples: int = None):
         logger.info(f"Limited to {num_samples} samples")
     
     # Determine config path
-    config_path = PROJECT_ROOT / "configs" / "skeleton.yaml"
+    config_path = PROJECT_ROOT / "configs" / "datagen" / "skeleton.yaml"
     
     if not config_path.exists():
         logger.error(f"Config file not found: {config_path}")

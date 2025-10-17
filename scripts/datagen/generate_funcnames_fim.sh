@@ -1,12 +1,12 @@
 #!/bin/bash
-# Script to generate function names using L2R (Left-to-Right) completion mode
+# Script to generate function names using FIM (Fill-in-Middle) mode
 # Runs in background and logs to file
 
 set -e
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 cd "$PROJECT_ROOT"
 
@@ -16,18 +16,18 @@ if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
 fi
 
 # Create logs directory
-mkdir -p "$PROJECT_ROOT/logs/datagen/l2r"
+mkdir -p "$PROJECT_ROOT/logs/datagen/problems_fim"
 
 # Generate timestamp for log file
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="$PROJECT_ROOT/logs/datagen/l2r/generation_${TIMESTAMP}.log"
-PID_FILE="$PROJECT_ROOT/logs/datagen/l2r/generation.pid"
+LOG_FILE="$PROJECT_ROOT/logs/datagen/problems_fim/generation_${TIMESTAMP}.log"
+PID_FILE="$PROJECT_ROOT/logs/datagen/problems_fim/generation.pid"
 
 # Run in background and redirect output to log file
-echo "🚀 Starting L2R generation in background..."
+echo "🚀 Starting FIM generation in background..."
 echo "📝 Log file: $LOG_FILE"
 
-nohup python scripts/generate_funcnames.py --mode l2r "$@" > "$LOG_FILE" 2>&1 &
+nohup python scripts/datagen/generate_funcnames.py --mode fim "$@" > "$LOG_FILE" 2>&1 &
 
 # Get PID
 PID=$!

@@ -5,7 +5,7 @@ set -e
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 cd "$PROJECT_ROOT"
 
@@ -22,5 +22,5 @@ fi
 
 shift || true
 
-python scripts/generate_funcnames.py --mode "$MODE" "$@"
+python scripts/datagen/generate_funcnames.py --mode "$MODE" "$@"
 
