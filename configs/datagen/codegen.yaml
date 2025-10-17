@@ -32,14 +32,17 @@ io:
 
 api:
   concurrency:
-    max_concurrent_requests: 5
+    max_concurrent_requests: 100
+
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
 
 codegen:
   # Sampling parameters for code generation
   temperature: 0.7
   top_p: 0.95
-  max_tokens: 2048
-  stop: ["\n\ndef ", "\n\nclass ", "\n\nif __name__"]
+  max_tokens: 4096
+  stop: ["---", "### Example"]
   
   # Batch writing configuration
   batch_write_size: 50
@@ -97,6 +100,7 @@ prompts:
               bool: True if the string is a palindrome, False otherwise.
           """
 
+      Output (function body only):
           s = ''.join(ch.lower() for ch in s if ch.isalnum())
           return s == s[::-1]
 
@@ -124,6 +128,7 @@ prompts:
               list[list[str]]: A list of all valid chessboard configurations represented as strings.
           """
 
+      Output (function body only):
           res = []
           board = [["."] * n for _ in range(n)]
           
@@ -176,6 +181,7 @@ prompts:
               int: The minimum number of steps required to reach the goal, or -1 if unreachable.
           """
 
+      Output (function body only):
           from collections import deque
           m, n = len(grid), len(grid[0])
           visited = set()
@@ -202,4 +208,6 @@ prompts:
 
       Function Definition:
       {{skeleton}}
+
+      Output (function body only):
 

@@ -17,7 +17,7 @@ from typing import Dict, List, Literal, Optional
 
 from ..core import ConfigManager, ClientManager, PromptBuilder, FilterChain
 from ..constants import CONFIGS_DIR, PROJECT_ROOT
-from ..datagen.preprocess import ProblemGenerator, SkeletonGenerator, CodeGenerator
+from ..datagen.preprocess import ProblemGenerator, SkeletonGenerator, CodeGenerator, RatingGenerator
 from ..utils.logger import setup_task_logger
 
 
@@ -230,7 +230,8 @@ class DataGenService:
         
         # Get prompt template
         prompts_cfg = self.config.get_section("prompts")
-        prompt_template = prompts_cfg.get("codegen.template", "")
+        codegen_prompts = prompts_cfg.get("codegen", {})
+        prompt_template = codegen_prompts.get("template", "")
         
         if not prompt_template:
             raise ValueError("Code generation prompt template not found in config")
@@ -262,6 +263,73 @@ class DataGenService:
         )
         
         self.logger.info(f"✅ Generated {len(results)} unique function implementations")
+        return results
+    
+    async def generate_ratings(
+        self,
+        source_mode: str,
+        num_samples: Optional[int] = None,
+    ) -> List[Dict]:
+        """Orchestrates the generation of quality ratings for implementations.
+        
+        Args:
+            source_mode: Either 'fim' or 'l2r'
+            num_samples: Optional limit on number of implementations to rate
+            
+        Returns:
+            List of rating dictionaries
+        """
+        self.logger.info(f"=== Orchestrating Rating Generation: {source_mode.upper()} ===")
+        
+        rating_cfg = self.config.get_section("rating")
+        io_cfg = self.config.get_section("io")
+        
+        # Determine input and output paths
+        source_cfg = io_cfg.get("source", {})
+        dir_map = source_cfg.get("dir_map", {})
+        input_dir = Path(dir_map.get(source_mode, f"data/generated/func_implementations/{source_mode}"))
+        input_file = input_dir / source_cfg.get("file_name", "implementations.jsonl")
+        
+        output_dir_map = io_cfg.get("out_dir_map", {})
+        output_dir = Path(output_dir_map.get(source_mode, f"data/generated/func_ratings/{source_mode}"))
+        
+        # Get prompt template
+        prompts_cfg = self.config.get_section("prompts")
+        rating_prompts = prompts_cfg.get("rating", {})
+        prompt_template = rating_prompts.get("template", "")
+        
+        if not prompt_template:
+            raise ValueError("Rating prompt template not found in config")
+        
+        # Create rating generator
+        rating_generator = RatingGenerator(
+            client_manager=self.client_manager,
+            config=rating_cfg,
+            logger=self.logger
+        )
+        
+        # Generate ratings
+        results = await rating_generator.generate(
+            input_file=input_file,
+            output_dir=output_dir,
+            prompt_template=prompt_template,
+            num_samples=num_samples,
+            temperature=rating_cfg.get("temperature", 0.3),
+            top_p=rating_cfg.get("top_p", 0.9),
+            max_tokens=rating_cfg.get("max_tokens", 1024),
+            stop=rating_cfg.get("stop", []),
+            batch_write_size=rating_cfg.get("batch_write_size", 50),
+            problem_key=source_cfg.get("problem_text_key", "problem_text"),
+            code_key=source_cfg.get("code_key", "code"),
+            function_name_key=source_cfg.get("function_name_key", "function_name"),
+            uid_key=source_cfg.get("uid_key", "uid"),
+            source_key=source_cfg.get("source_key", "source"),
+            validate_scores=rating_cfg.get("validate_scores", True),
+            min_score=rating_cfg.get("min_score", 1),
+            max_score=rating_cfg.get("max_score", 5)
+        )
+        
+        self.logger.info(f"✅ Generated {len(results)} quality ratings")
         return results
     
     async def generate_full_pipeline(

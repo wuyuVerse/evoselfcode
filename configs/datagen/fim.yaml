@@ -70,6 +70,10 @@ namegen:
 io:
   out_names_dir: "data/generated/problems_desc/fim"
 
+# Logging configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+
 # Model configuration reference (relative to CONFIGS_DIR)
 model_config: "model.yaml"
 

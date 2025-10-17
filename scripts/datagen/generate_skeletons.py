@@ -62,8 +62,8 @@ async def main(source: str = "fim", num_samples: int = None):
         for i, res in enumerate(results[:3], 1):
             logger.info(f"\n--- Skeleton {i} ---")
             logger.info(f"UID: {res['uid']}")
+            logger.info(f"Source: {res['source']}")
             logger.info(f"Function: {res['function_name']}")
-            logger.info(f"Valid: {res['valid']}")
             logger.info(f"Code preview:\n{res['skeleton_code'][:300]}...")
 
 

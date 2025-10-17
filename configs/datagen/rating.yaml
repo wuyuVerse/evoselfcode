@@ -1,0 +1,217 @@
+# Configuration for Code Quality Rating Generation
+# This stage reads function implementations and generates quality ratings
+
+model_config: "model.yaml"
+
+io:
+  # Input source configuration
+  source:
+    mode: "fim"  # Options: "fim" or "l2r"
+    
+    # Directory mapping for implementation sources
+    dir_map:
+      fim: "data/generated/func_implementations/fim"
+      l2r: "data/generated/func_implementations/l2r"
+    
+    # Input file name
+    file_name: "implementations.jsonl"
+    
+    # Keys to extract from input JSONL
+    problem_text_key: "problem_text"
+    code_key: "code"
+    function_name_key: "function_name"
+    uid_key: "uid"
+    source_key: "source"
+  
+  # Output configuration
+  out_dir_map:
+    fim: "data/generated/func_ratings/fim"
+    l2r: "data/generated/func_ratings/l2r"
+  
+  out_file_name: "ratings.jsonl"
+  hash_table_name: "hash_table.txt"
+
+api:
+  concurrency:
+    max_concurrent_requests: 100
+
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+
+rating:
+  # Sampling parameters for rating generation
+  temperature: 0.3  # Lower for more consistent ratings
+  top_p: 0.9
+  max_tokens: 1024
+  stop: ["---", "\n\n###"]
+  
+  # Batch writing configuration
+  batch_write_size: 50
+  
+  # Number of samples to process (null means process all available)
+  num_samples: null
+  
+  # Score validation
+  validate_scores: true
+  min_score: 1
+  max_score: 5
+
+prompts:
+  rating:
+    # Quality rating prompt with 5-dimensional scoring
+    # Uses {{problem_text}} and {{code}} placeholders
+    template: |
+      You are an expert evaluator of algorithmic programming tasks.
+      Your task is to rate the quality of a given problem description, function definition (including docstring), and its implementation.
+      You must provide a score for each of the following five dimensions, each on a scale from 1 to 5.
+
+      Scoring Guidelines:
+
+      1. Problem Design Quality
+
+         * 5: Clear, coherent, and interesting algorithmic problem. Includes examples and well-defined input/output.
+         * 4: Mostly clear and solvable, minor ambiguity.
+         * 3: Understandable but lacks detail or clarity.
+         * 2: Incomplete or confusing.
+         * 1: Invalid or meaningless problem.
+
+      2. Function Definition & Naming Quality
+
+         * 5: Function name is descriptive and PEP8-compliant; parameters match the problem; docstring follows Google style with correct Args/Returns sections.
+         * 4: Good naming and docstring, with small omissions or inconsistencies.
+         * 3: Acceptable naming but generic or partially mismatched; incomplete docstring.
+         * 2: Poor naming or unclear parameters; missing or unstructured docstring.
+         * 1: No meaningful name or documentation.
+
+      3. Algorithmic Correctness
+
+         * 5: Implementation is fully correct and robust; handles edge cases and matches problem requirements.
+         * 4: Mostly correct; minor edge cases may fail.
+         * 3: Works for simple examples but misses key logic.
+         * 2: Major logical errors; often incorrect output.
+         * 1: Implementation does not solve the described problem.
+
+      4. Algorithmic Efficiency & Design Choice
+
+         * 5: Uses optimal or near-optimal algorithm; proper data structures; efficient in time and space.
+         * 4: Reasonably efficient; acceptable for most inputs.
+         * 3: Functional but inefficient; redundant logic or suboptimal complexity.
+         * 2: Very inefficient; poor algorithmic choice.
+         * 1: Brute-force or unusable on real inputs.
+
+      5. Code Readability & Structure
+
+         * 5: Clean, readable, and well-structured code; meaningful variable names and logical flow.
+         * 4: Mostly clean; minor inconsistencies.
+         * 3: Understandable but cluttered or inconsistent.
+         * 2: Hard to read or poorly indented.
+         * 1: Chaotic or unreadable code.
+
+      After rating, provide your output in this plain text format:
+
+      Problem Design Score: X
+      Function Definition Score: X
+      Algorithm Correctness Score: X
+      Algorithm Efficiency Score: X
+      Code Readability Score: X
+      Summary: [1–3 sentences explaining the overall reasoning.]
+
+      ---
+
+      ### Few-shot Example 1 
+
+      Input Problem and Code:
+      Title: Knapsack with Small Weights
+      Description: You are given a set of items, each with a weight and value. You have a knapsack with a maximum weight capacity. The weights are small integers. Find the maximum value you can carry.
+      Example: weights = [1, 3, 4, 5], values = [1, 4, 5, 7], capacity = 7 → Output: 9
+
+      def max_value_in_knapsack_small_weights(weights: list[int], values: list[int], capacity: int) -> int:
+          """
+          Calculate the maximum value achievable in a knapsack with small integer weights.
+
+          Uses dynamic programming and bitsets to efficiently compute the maximum value  
+          that can be carried in the knapsack given the weight and value constraints.  
+
+          Args:  
+              weights (list[int]): List of weights of the items.  
+              values (list[int]): List of values of the items.  
+              capacity (int): Maximum weight capacity of the knapsack.  
+
+          Returns:  
+              int: Maximum value that can be carried in the knapsack.  
+          """  
+          n = len(weights)  
+          dp = [0] * (capacity + 1)  
+          for i in range(n):  
+              for w in range(capacity, weights[i] - 1, -1):  
+                  dp[w] = max(dp[w], dp[w - weights[i]] + values[i])  
+          return dp[capacity]
+
+
+      Output Evaluation:
+      Problem Design Score: 5
+      Function Definition Score: 5
+      Algorithm Correctness Score: 5
+      Algorithm Efficiency Score: 5
+      Code Readability Score: 5
+      Summary: Excellent formulation and implementation. The problem is clear, the function is well-defined, and the DP solution is both correct and efficient.
+
+      ---
+
+      ### Example 2
+
+      Input Problem and Code:
+      Title: Count Unique Substrings
+      Description: Given a string, count how many distinct substrings it contains.
+      Example: Input = "aba" → Output = 5
+
+      def count_unique_substrings(s):
+          """Count unique substrings in a string."""
+          substrings = []
+          for i in range(len(s)):
+              for j in range(i + 1, len(s) + 1):
+                  sub = s[i:j]
+                  if sub not in substrings:
+                      substrings.append(sub)
+          return len(substrings)
+
+      Output Evaluation:
+      Problem Design Score: 4
+      Function Definition Score: 2
+      Algorithm Correctness Score: 4
+      Algorithm Efficiency Score: 2
+      Code Readability Score: 3
+      Summary: The problem is valid and solvable, but the function lacks proper typing and docstring structure. The algorithm works but is inefficient due to list-based duplicate checking instead of a set.
+
+      ---
+
+      ### Example 3
+
+      Input Problem and Code:
+      Title: Maximize Array
+      Description: Given an array, maximize it somehow.
+      Example: Input = [1,2,3] → Output = 3
+
+      def do_stuff(arr):
+          """Do something with an array."""
+          for i in arr:
+              if i > 0:
+                  return i
+          return 0
+
+      Output Evaluation:
+      Problem Design Score: 1
+      Function Definition Score: 2
+      Algorithm Correctness Score: 1
+      Algorithm Efficiency Score: 2
+      Code Readability Score: 2
+      Summary: The problem statement is meaningless and vague. The implementation does not correspond to any clear objective, and naming/documentation are inadequate.
+
+      ---
+
+      Now evaluate the following:
+
+      {{problem_text}}
+
+      {{code}}
+

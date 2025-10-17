@@ -23,16 +23,16 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$PROJECT_ROOT/logs/datagen/problems_fim/generation_${TIMESTAMP}.log"
 PID_FILE="$PROJECT_ROOT/logs/datagen/problems_fim/generation.pid"
 
-# Run in background and redirect output to log file
+# Run in background (output handled by Python logger)
 echo "🚀 Starting FIM generation in background..."
-echo "📝 Log file: $LOG_FILE"
 
-nohup python scripts/datagen/generate_funcnames.py --mode fim "$@" > "$LOG_FILE" 2>&1 &
+nohup python scripts/datagen/generate_funcnames.py --mode fim "$@" > /dev/null 2>&1 &
 
 # Get PID
 PID=$!
+echo $PID > "$PID_FILE"
 echo "✅ Process started with PID: $PID"
-echo "📊 Monitor progress: tail -f $LOG_FILE"
-echo "$PID" > "$PID_FILE"
-echo "🛑 To stop: kill $(cat $PID_FILE)"
+echo "📁 Logs will be in: $PROJECT_ROOT/logs/datagen/problems_fim/"
+echo "📊 Monitor: ls -lht $PROJECT_ROOT/logs/datagen/problems_fim/ | head"
+echo "🛑 To stop: kill $PID"
 

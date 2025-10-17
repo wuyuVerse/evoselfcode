@@ -18,12 +18,14 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/generation_${TIMESTAMP}.log"
 PID_FILE="$LOG_DIR/generation.pid"
 
-# Run in background with nohup
-nohup python scripts/datagen/generate_code.py --source fim "$@" > "$LOG_FILE" 2>&1 &
+# Run in background (output handled by Python logger)
+nohup python scripts/datagen/generate_code.py --source fim "$@" > /dev/null 2>&1 &
 
 # Save PID
-echo $! > "$PID_FILE"
+PID=$!
+echo $PID > "$PID_FILE"
 echo "Started code generation (FIM mode) in background"
-echo "PID: $(cat $PID_FILE)"
-echo "Log: $LOG_FILE"
+echo "PID: $PID"
+echo "Logs will be in: $LOG_DIR/"
+echo "Monitor: ls -lht $LOG_DIR/ | head"
 

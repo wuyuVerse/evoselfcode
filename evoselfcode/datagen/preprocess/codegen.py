@@ -121,6 +121,20 @@ class CodeGenerator:
         except SyntaxError:
             return False
 
+    def _check_body_format(self, body: str) -> bool:
+        """Check if body is actually function body (not full function definition).
+
+        Args:
+            body: Generated text
+
+        Returns:
+            True if it looks like function body, False if it's a full function definition
+        """
+        # If starts with 'def ', it's a full function (wrong format)
+        if body.lstrip().startswith('def '):
+            return False
+        return True
+
     def _combine_skeleton_and_body(self, skeleton: str, body: str) -> str:
         """Combine function skeleton with generated body.
 
@@ -290,7 +304,6 @@ class CodeGenerator:
 
         if num_samples is not None:
             skeletons = skeletons[:num_samples]
-            self.logger.info(f"Limited to {len(skeletons)} samples")
 
         if not skeletons:
             self.logger.warning("No skeletons to process")
@@ -356,9 +369,11 @@ class CodeGenerator:
                         stop=stop
                     )
 
-                    self.logger.info(f"[Batch {batch_idx+1}/{num_batches}] Received {len(batch_results)} responses")
-
+                    # Collect tasks that need retry
+                    retry_tasks = []
+                    
                     # Process results
+                    self.logger.debug(f"[Batch {batch_idx+1}/{num_batches}] Processing {len(batch_results)} results")
                     for idx, result_list in enumerate(batch_results):
                         skeleton_data = batch_skeletons[idx]
                         problem_text = skeleton_data.get(problem_key, "")
@@ -367,8 +382,27 @@ class CodeGenerator:
 
                         for result in result_list:
                             body_code = result.get("text", "").strip()
+                            
+                            # Log raw model output
+                            self.logger.debug(f"[{function_name}] Raw output (first 200 chars): {body_code[:200]}")
 
                             if not body_code:
+                                self.logger.debug(f"[{function_name}] Empty response")
+                                continue
+
+                            # Check if format is correct (should be function body, not full function)
+                            if not self._check_body_format(body_code):
+                                self.logger.debug(f"[{function_name}] Wrong format, adding to retry queue")
+                                self.logger.debug(f"[{function_name}] Wrong format output: {body_code[:300]}")
+                                # Add to retry queue (up to 3 attempts)
+                                retry_tasks.append({
+                                    'skeleton_data': skeleton_data,
+                                    'problem_text': problem_text,
+                                    'skeleton_code': skeleton_code,
+                                    'function_name': function_name,
+                                    'attempts': 0,
+                                    'max_attempts': 3
+                                })
                                 continue
 
                             # Combine skeleton and body
@@ -402,14 +436,72 @@ class CodeGenerator:
                                 "code": full_implementation,
                                 "function_name": function_name
                             })
+                    
+                    # Process retry queue asynchronously
+                    if retry_tasks:
+                        self.logger.debug(f"Processing {len(retry_tasks)} retry tasks...")
+                        retry_prompts = [
+                            self._build_prompt(task['problem_text'], task['skeleton_code'], prompt_template)
+                            for task in retry_tasks
+                        ]
+                        
+                        try:
+                            retry_results = await client.complete_batch_async(
+                                prompts=retry_prompts,
+                                max_tokens=max_tokens,
+                                temperature=temperature,
+                                top_p=top_p,
+                                n=1,
+                                stop=stop
+                            )
+                            
+                            retry_success_count = 0
+                            for task_idx, result_list in enumerate(retry_results):
+                                task = retry_tasks[task_idx]
+                                task['attempts'] += 1
+                                
+                                for result in result_list:
+                                    retry_body = result.get("text", "").strip()
+                                    self.logger.debug(f"[{task['function_name']}] Retry {task['attempts']} output: {retry_body[:200]}")
+                                    
+                                    if retry_body and self._check_body_format(retry_body):
+                                        # Success! Process this result
+                                        full_implementation = self._combine_skeleton_and_body(
+                                            task['skeleton_code'],
+                                            retry_body
+                                        )
+                                        uid = self._compute_hash(full_implementation)
+                                        
+                                        if uid not in existing_hashes and uid not in pending_hashes:
+                                            if validate_syntax and not self._validate_syntax(full_implementation):
+                                                total_invalid_syntax += 1
+                                                continue
+                                            
+                                            pending_hashes.append(uid)
+                                            pending_write.append({
+                                                "uid": uid,
+                                                "source": task['skeleton_data'].get("source", "UNKNOWN"),
+                                                "problem_text": task['problem_text'],
+                                                "code": full_implementation,
+                                                "function_name": task['function_name']
+                                            })
+                                            retry_success_count += 1
+                                            self.logger.debug(f"✓ Retry succeeded for {task['function_name']}")
+                                        break
+                            
+                            self.logger.debug(f"Retry batch: {retry_success_count}/{len(retry_tasks)} succeeded")
+                            
+                        except Exception as e:
+                            self.logger.error(f"Retry batch failed: {e}")
 
                     total_processed += len(batch_prompts)
                     progress.update(task_id, advance=len(batch_prompts))
+                    
+                    self.logger.debug(f"[Batch {batch_idx+1}/{num_batches}] Pending write: {len(pending_write)}, batch_write_size: {batch_write_size}")
 
                     # Incremental write
                     if len(pending_write) >= batch_write_size:
                         write_count = len(pending_write)
-                        self.logger.info(f"Writing {write_count} implementations to disk...")
 
                         await self._write_jsonl(output_file, pending_write)
                         await self._write_hashes(hash_file, pending_hashes)
@@ -420,14 +512,13 @@ class CodeGenerator:
                         pending_write = []
                         pending_hashes = []
 
-                        self.logger.info(f"✅ Wrote {write_count} implementations (total unique: {len(all_results)})")
+                        self.logger.info(f"✅ Progress: {len(all_results)} implementations generated")
 
                 except Exception as e:
                     self.logger.error(f"Error in batch {batch_idx+1}: {e}", exc_info=True)
 
         # Write remaining
         if pending_write:
-            self.logger.info(f"Writing final {len(pending_write)} implementations...")
             await self._write_jsonl(output_file, pending_write)
             await self._write_hashes(hash_file, pending_hashes)
             all_results.extend(pending_write)

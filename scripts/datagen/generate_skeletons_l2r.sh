@@ -18,12 +18,15 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/generation_${TIMESTAMP}.log"
 PID_FILE="$LOG_DIR/generation.pid"
 
-# Run in background with nohup
-nohup python scripts/datagen/generate_skeletons.py --source l2r > "$LOG_FILE" 2>&1 &
+# Run in background (output handled by Python logger)
+nohup python scripts/datagen/generate_skeletons.py --source l2r "$@" > /dev/null 2>&1 &
 
 # Save PID
-echo $! > "$PID_FILE"
+PID=$!
+echo $PID > "$PID_FILE"
 echo "Started skeleton generation (L2R mode) in background"
-echo "PID: $(cat $PID_FILE)"
-echo "Log: $LOG_FILE"
+echo "PID: $PID"
+echo "Logs will be in: $LOG_DIR/"
+echo "Monitor: ls -lht $LOG_DIR/ | head"
+echo "To stop: kill $PID"
 

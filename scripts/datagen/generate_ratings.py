@@ -1,11 +1,12 @@
-#!/usr/bin/env python3
 """
-Script to generate Python function implementations from skeletons.
+Generate Quality Ratings for Function Implementations
+
+This script generates quality ratings for function implementations using LLM evaluation.
 
 Usage:
-    python scripts/datagen/generate_code.py --source fim
-    python scripts/datagen/generate_code.py --source l2r
-    python scripts/datagen/generate_code.py --source fim --num-samples 100
+    python scripts/datagen/generate_ratings.py --source fim
+    python scripts/datagen/generate_ratings.py --source l2r
+    python scripts/datagen/generate_ratings.py --source fim --num-samples 100
 """
 
 import asyncio
@@ -22,14 +23,14 @@ from evoselfcode.utils.logger import LoggerManager
 
 
 async def main(source: str = "fim", num_samples: int = None):
-    """Main function to run code generation.
+    """Main function to run rating generation.
 
     Args:
         source (str): Source mode, either 'fim' or 'l2r'.
         num_samples (int, optional): Number of samples to process. None means all.
     """
     # Determine config path
-    config_path = PROJECT_ROOT / "configs" / "datagen" / "codegen.yaml"
+    config_path = PROJECT_ROOT / "configs" / "datagen" / "rating.yaml"
     
     if not config_path.exists():
         print(f"Config file not found: {config_path}")
@@ -43,13 +44,13 @@ async def main(source: str = "fim", num_samples: int = None):
     
     # Setup logger with configured level
     logger = LoggerManager.get_logger(
-        name="generate_code",
+        name="generate_ratings",
         module="datagen",
-        task=f"codegen_{source}",
+        task=f"rating_{source}",
         level=log_level
     )
     
-    logger.info(f"Starting function implementation generation for source: {source.upper()}")
+    logger.info(f"Starting quality rating generation for source: {source.upper()}")
     logger.info(f"Log level: {log_level_str}")
     if num_samples:
         logger.info(f"Limited to {num_samples} samples")
@@ -58,41 +59,44 @@ async def main(source: str = "fim", num_samples: int = None):
     service = DataGenService.from_config_path(str(config_path), logger=logger)
     
     try:
-        # Generate implementations
-        results = await service.generate_code(
+        # Generate ratings
+        results = await service.generate_ratings(
             source_mode=source,
             num_samples=num_samples
         )
         
-        logger.info(f"✅ Generated {len(results)} unique function implementations")
+        # Display sample results
+        logger.info("=== Sample Ratings ===")
+        for res in results[:3]:
+            logger.info(f"Function: {res['function_name']}")
+            logger.info(f"  Problem Design: {res['ratings']['problem_design']}")
+            logger.info(f"  Function Definition: {res['ratings']['function_definition']}")
+            logger.info(f"  Correctness: {res['ratings']['correctness']}")
+            logger.info(f"  Efficiency: {res['ratings']['efficiency']}")
+            logger.info(f"  Readability: {res['ratings']['readability']}")
+            logger.info(f"  Summary: {res['summary'][:100]}...")
+            logger.info("")
         
-        # Show sample results
-        if results:
-            logger.info("\n=== Sample Results ===")
-            for i, res in enumerate(results[:2], 1):
-                logger.info(f"\n--- Implementation {i} ---")
-                logger.info(f"UID: {res['uid']}")
-                logger.info(f"Source: {res['source']}")
-                logger.info(f"Function: {res['function_name']}")
-                logger.info(f"Code preview:\n{res['code'][:500]}...")
-    
+        logger.info("=== Generation Complete ===")
+        logger.info(f"Total ratings generated: {len(results)}")
+        
     except Exception as e:
-        logger.exception(f"Error during code generation: {e}")
+        logger.error(f"Error during rating generation: {e}", exc_info=True)
         sys.exit(1)
-    finally:
-        LoggerManager.close_all()
 
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Generate function implementations from skeletons")
+    parser = argparse.ArgumentParser(
+        description="Generate quality ratings for function implementations"
+    )
     parser.add_argument(
         "--source",
         type=str,
         choices=["fim", "l2r"],
-        required=True,
-        help="Source mode: 'fim' or 'l2r'"
+        default="fim",
+        help="Source mode: fim or l2r"
     )
     parser.add_argument(
         "--num-samples",
