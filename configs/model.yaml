@@ -9,7 +9,7 @@ api:
   
   # Concurrency settings
   concurrency:
-    max_concurrent_requests: 100  # Reduce concurrency to improve stability
+    max_concurrent_requests: 256  # Reduce concurrency to improve stability
   
   # FIM mode configuration
   fim:

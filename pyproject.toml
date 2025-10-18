@@ -16,11 +16,12 @@ classifiers = [
 ]
 
 dependencies = [
+    "matplotlib>=3.10.7",
     # Core dependencies
-    "openai>=1.0.0",        # OpenAI API client (async support)
-    "pyyaml>=6.0",          # YAML configuration parsing
-    "rich>=13.0.0",         # Beautiful console output and logging
-    "typer>=0.9.0",         # CLI framework
+    "openai>=1.0.0", # OpenAI API client (async support)
+    "pyyaml>=6.0", # YAML configuration parsing
+    "rich>=13.0.0", # Beautiful console output and logging
+    "typer>=0.9.0", # CLI framework
 ]
 
 [project.optional-dependencies]

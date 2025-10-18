@@ -1,0 +1,56 @@
+# ChatML Conversion Configuration
+# Converts rated function implementations to ChatML format for fine-tuning
+
+# Input/Output paths
+paths:
+  # Input rated data files
+  input:
+    fim: "data/generated_test/func_ratings/fim/ratings.jsonl"
+    l2r: "data/generated/func_ratings/l2r/ratings.jsonl"
+  
+  # Output ChatML format files
+  output:
+    fim: "data/generated/chatml/fim/training_data.jsonl"
+    l2r: "data/generated/chatml/l2r/training_data.jsonl"
+
+# Quality filtering
+filter:
+  # Minimum rating scores (1-5 scale)
+  # Only records meeting these thresholds will be converted
+  min_ratings:
+    problem_design: 4        # Problem must be well-designed
+    function_definition: 4   # Function signature must be clear
+    correctness: 4           # Algorithm must be correct
+    efficiency: 3            # Reasonable efficiency
+    readability: 4           # Code must be readable
+  
+  # If true, ALL dimensions must meet threshold
+  # If false, ANY dimension meeting threshold is sufficient
+  require_all_above_threshold: true
+
+# Processing settings
+processing:
+  # Number of worker processes (0 = auto-detect CPU count)
+  num_workers: 0
+  
+  # Chunk size for batch processing
+  chunk_size: 500
+
+# Output settings
+output:
+  # Only include uid and messages (no ratings or other metadata)
+  fields: ["uid", "messages"]
+  
+  # Pretty print JSON (makes files larger but more readable)
+  pretty_print: false
+  
+  # Ensure ASCII encoding (false = allow Unicode)
+  ensure_ascii: false
+
+# Logging configuration
+logging:
+  level: "INFO"  # INFO, DEBUG
+  
+  # Progress reporting interval
+  progress_interval: 1000
+

@@ -60,7 +60,7 @@ prompts:
 
 # FIM Generation parameters
 namegen:
-  num_samples: 10000  # Total number of samples to generate
+  num_samples: 100000  # Total number of samples to generate
   temperature: 1.0
   top_p: 0.95
   max_tokens: 2048  # Enough for a complete problem description

@@ -134,6 +134,27 @@ class CodeGenerator:
         if body.lstrip().startswith('def '):
             return False
         return True
+    
+    def _check_body_has_code(self, body: str) -> bool:
+        """Check if body contains actual code (not just empty lines or comments).
+        
+        Args:
+            body: Generated function body
+            
+        Returns:
+            True if body has actual code statements, False otherwise
+        """
+        if not body or not body.strip():
+            return False
+        
+        # Check if there's any non-empty, non-comment line
+        for line in body.split('\n'):
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                # Has actual code
+                return True
+        
+        return False
 
     def _combine_skeleton_and_body(self, skeleton: str, body: str) -> str:
         """Combine function skeleton with generated body.
@@ -404,6 +425,19 @@ class CodeGenerator:
                                     'max_attempts': 3
                                 })
                                 continue
+                            
+                            # Check if body contains actual code
+                            if not self._check_body_has_code(body_code):
+                                self.logger.debug(f"[{function_name}] Empty body (no actual code), adding to retry queue")
+                                retry_tasks.append({
+                                    'skeleton_data': skeleton_data,
+                                    'problem_text': problem_text,
+                                    'skeleton_code': skeleton_code,
+                                    'function_name': function_name,
+                                    'attempts': 0,
+                                    'max_attempts': 3
+                                })
+                                continue
 
                             # Combine skeleton and body
                             full_implementation = self._combine_skeleton_and_body(
@@ -464,7 +498,7 @@ class CodeGenerator:
                                     retry_body = result.get("text", "").strip()
                                     self.logger.debug(f"[{task['function_name']}] Retry {task['attempts']} output: {retry_body[:200]}")
                                     
-                                    if retry_body and self._check_body_format(retry_body):
+                                    if retry_body and self._check_body_format(retry_body) and self._check_body_has_code(retry_body):
                                         # Success! Process this result
                                         full_implementation = self._combine_skeleton_and_body(
                                             task['skeleton_code'],

@@ -31,10 +31,6 @@ io:
   out_file_name: "ratings.jsonl"
   hash_table_name: "hash_table.txt"
 
-api:
-  concurrency:
-    max_concurrent_requests: 100
-
 logging:
   level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
 
@@ -118,7 +114,7 @@ prompts:
 
       ---
 
-      ### Few-shot Example 1 
+      ### Example 1 
 
       Input Problem and Code:
       Title: Knapsack with Small Weights
